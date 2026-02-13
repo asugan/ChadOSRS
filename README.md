@@ -56,6 +56,8 @@ Notlar:
 - Canli modda her game tick bir engine tick olarak islenir (`require_tick_advance: true`).
 - `runs/runelite_live.jsonl` icinde `nearby_scorpion_count` ve `nearest_scorpion_distance` alanlari yer alir.
 - Ayni logda `risk_level`, `attack_recommendation`, `best_target_*` alanlari da yazilir.
+- GUI canli modda `Canli Sinirsiz Tick` aciksa max tick siniri uygulanmaz.
+- GUI canli detay logu `runs/gui_live.jsonl` dosyasina yazilir ve boyuta gore rotate edilir (`.1`, `.2`, `.3`).
 
 ## Dizin Yapisi
 

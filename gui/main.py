@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import sys
+import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Optional
@@ -19,6 +21,7 @@ from PyQt6.QtWidgets import (
     QSpinBox,
     QGroupBox,
     QFormLayout,
+    QCheckBox,
 )
 
 from bot_core.fsm import FiniteStateMachine, TickContext
@@ -163,8 +166,16 @@ class BotGUI(QMainWindow):
         self.live_runner: Optional[IActionRunner] = None
         self.live_world: Optional[WorldModel] = None
         self.live_config_path = Path(__file__).resolve().parents[1] / "configs" / "runelite_http.json"
+        self.live_detail_log_path = Path(__file__).resolve().parents[1] / "runs" / "gui_live.jsonl"
+        self.live_detail_log_max_bytes = 2_000_000
+        self.live_detail_log_backups = 3
+        self.live_detail_log_error_reported = False
+        self.live_ui_summary_every_ticks = 20
         self.last_live_tick: Optional[int] = None
         self.last_live_attack_tick: Optional[int] = None
+        self.last_live_summary_tick: Optional[int] = None
+        self.last_live_recommendation: Optional[str] = None
+        self.last_live_wait_log_time = 0.0
         self.running = False
         self.tick_count = 0
         self.timer = QTimer(self)
@@ -238,7 +249,7 @@ class BotGUI(QMainWindow):
         settings_layout.addRow("Yükseklik:", self.height_spin)
 
         self.max_ticks_spin = QSpinBox()
-        self.max_ticks_spin.setRange(10, 1000)
+        self.max_ticks_spin.setRange(10, 1_000_000)
         self.max_ticks_spin.setValue(120)
         settings_layout.addRow("Max Tick:", self.max_ticks_spin)
 
@@ -247,6 +258,18 @@ class BotGUI(QMainWindow):
         self.scorpion_hp_spin.setValue(10)
         self.scorpion_hp_spin.valueChanged.connect(self._on_settings_changed)
         settings_layout.addRow("Scorpion HP:", self.scorpion_hp_spin)
+
+        self.live_unlimited_ticks_check = QCheckBox("Canlı Sınırsız Tick")
+        self.live_unlimited_ticks_check.setChecked(True)
+        settings_layout.addRow(self.live_unlimited_ticks_check)
+
+        self.live_verbose_ui_log_check = QCheckBox("Canlı Tick Logu (UI)")
+        self.live_verbose_ui_log_check.setChecked(False)
+        settings_layout.addRow(self.live_verbose_ui_log_check)
+
+        self.live_detail_file_log_check = QCheckBox("Canlı Detay Logu (Dosya)")
+        self.live_detail_file_log_check.setChecked(True)
+        settings_layout.addRow(self.live_detail_file_log_check)
 
         settings_group.setLayout(settings_layout)
         right_panel.addWidget(settings_group)
@@ -297,6 +320,56 @@ class BotGUI(QMainWindow):
         self.live_world = None
         self.last_live_tick = None
         self.last_live_attack_tick = None
+        self.last_live_summary_tick = None
+        self.last_live_recommendation = None
+        self.last_live_wait_log_time = 0.0
+        self.live_detail_log_error_reported = False
+
+    def _rotate_live_detail_log_if_needed(self):
+        path = self.live_detail_log_path
+        if not path.exists():
+            return
+        if path.stat().st_size < self.live_detail_log_max_bytes:
+            return
+
+        oldest = path.with_name(f"{path.name}.{self.live_detail_log_backups}")
+        if oldest.exists():
+            oldest.unlink()
+
+        for idx in range(self.live_detail_log_backups - 1, 0, -1):
+            src = path.with_name(f"{path.name}.{idx}")
+            dst = path.with_name(f"{path.name}.{idx + 1}")
+            if src.exists():
+                if dst.exists():
+                    dst.unlink()
+                src.rename(dst)
+
+        path.rename(path.with_name(f"{path.name}.1"))
+
+    def _write_live_detail_log(self, row: dict[str, object]):
+        if not self.live_detail_file_log_check.isChecked():
+            return
+
+        try:
+            self.live_detail_log_path.parent.mkdir(parents=True, exist_ok=True)
+            self._rotate_live_detail_log_if_needed()
+            payload = {"ts": time.time(), **row}
+            with self.live_detail_log_path.open("a", encoding="utf-8") as logfile:
+                logfile.write(json.dumps(payload, ensure_ascii=True) + "\n")
+            self.live_detail_log_error_reported = False
+        except Exception as exc:
+            if not self.live_detail_log_error_reported:
+                self._log(f"Canlı detay log yazılamadı: {exc}")
+                self.live_detail_log_error_reported = True
+
+    def _should_emit_live_summary(self, tick: int, recommendation: str) -> bool:
+        if self.live_verbose_ui_log_check.isChecked():
+            return True
+        if self.last_live_summary_tick is None:
+            return True
+        if recommendation != self.last_live_recommendation:
+            return True
+        return tick - self.last_live_summary_tick >= self.live_ui_summary_every_ticks
 
     def _enable_live_mode(self, auto: bool = False):
         if self.running:
@@ -325,6 +398,10 @@ class BotGUI(QMainWindow):
             self.running = False
             self.timer.stop()
             self.tick_count = 0
+            self.last_live_tick = None
+            self.last_live_attack_tick = None
+            self.last_live_summary_tick = None
+            self.last_live_recommendation = None
             max_ticks = max(
                 self.max_ticks_spin.minimum(),
                 min(self.max_ticks_spin.maximum(), app_config.engine.max_ticks),
@@ -344,6 +421,8 @@ class BotGUI(QMainWindow):
             if hasattr(perception, "listen_port"):
                 port = int(getattr(perception, "listen_port"))
             self._log(f"Canlı mod aktif. Endpoint: http://{host}:{port}/tick")
+            if self.live_detail_file_log_check.isChecked():
+                self._log(f"Canlı detay log: {self.live_detail_log_path}")
         except Exception as exc:
             self._close_live_mode()
             self.live_mode = False
@@ -376,7 +455,8 @@ class BotGUI(QMainWindow):
             self._stop_bot()
             return
 
-        if self.tick_count >= self.max_ticks_spin.value():
+        live_unlimited = self.live_unlimited_ticks_check.isChecked()
+        if not live_unlimited and self.tick_count >= self.max_ticks_spin.value():
             self._log("Max tick reached!")
             self._stop_bot()
             return
@@ -384,12 +464,13 @@ class BotGUI(QMainWindow):
         try:
             world = self.live_perception.observe()
         except Exception as exc:
-            self._log(f"Canlı veri bekleniyor: {exc}")
+            now = time.monotonic()
+            if now - self.last_live_wait_log_time >= 5.0:
+                self._log(f"Canlı veri bekleniyor: {exc}")
+                self.last_live_wait_log_time = now
             return
 
         self.live_world = world
-        self.tick_count += 1
-
         recommendation = str(world.meta.get("attack_recommendation", "no_target"))
         nearest_distance = world.meta.get("nearest_scorpion_distance")
 
@@ -399,24 +480,52 @@ class BotGUI(QMainWindow):
 
         if self.last_live_tick != world.tick:
             self.last_live_tick = world.tick
-            self._log(
-                "[live] "
-                f"tick={world.tick} "
-                f"player={world.bot_pos} "
-                f"npc_count={world.meta.get('nearby_scorpion_count', 0)} "
-                f"nearest={nearest_distance} "
-                f"rec={recommendation}"
-            )
+            self.tick_count += 1
 
-        if (
-            self.running
-            and self.live_runner
-            and recommendation == "attack_now"
-            and self.last_live_attack_tick != world.tick
-        ):
-            self.last_live_attack_tick = world.tick
-            result = self.live_runner.execute(BotAction(kind="attack"))
-            self._log(f"[live-action] attack -> {result.message}")
+            auto_attack_message = None
+            if (
+                self.running
+                and self.live_runner
+                and recommendation == "attack_now"
+                and self.last_live_attack_tick != world.tick
+            ):
+                self.last_live_attack_tick = world.tick
+                result = self.live_runner.execute(BotAction(kind="attack"))
+                auto_attack_message = result.message
+                self._log(f"[live-action] attack -> {result.message}")
+
+            if self._should_emit_live_summary(int(world.tick), recommendation):
+                self.last_live_summary_tick = int(world.tick)
+                self._log(
+                    "[live] "
+                    f"tick={world.tick} "
+                    f"player={world.bot_pos} "
+                    f"npc_count={world.meta.get('nearby_scorpion_count', 0)} "
+                    f"nearest={nearest_distance} "
+                    f"rec={recommendation}"
+                )
+
+            self.last_live_recommendation = recommendation
+
+            best_target_id = None
+            best_target = world.meta.get("best_target")
+            if isinstance(best_target, dict):
+                best_target_id = best_target.get("id")
+
+            self._write_live_detail_log(
+                {
+                    "tick": world.tick,
+                    "processed_live_ticks": self.tick_count,
+                    "player_pos": list(world.bot_pos),
+                    "npc_count": world.meta.get("nearby_scorpion_count", 0),
+                    "nearest_scorpion_distance": nearest_distance,
+                    "risk_level": world.meta.get("risk_level", "none"),
+                    "attack_recommendation": recommendation,
+                    "can_attack_now": bool(world.meta.get("can_attack_now", False)),
+                    "best_target_id": best_target_id,
+                    "auto_attack_result": auto_attack_message,
+                }
+            )
 
     @staticmethod
     def _distance(pos1: Coord, pos2: Coord) -> int:
@@ -505,11 +614,18 @@ class BotGUI(QMainWindow):
             if not self.live_perception:
                 self._log("Canlı mod hazır değil")
                 return
+            self.last_live_tick = None
             self.last_live_attack_tick = None
+            self.last_live_summary_tick = None
+            self.last_live_recommendation = None
+            self.last_live_wait_log_time = 0.0
             self.running = True
             self.start_btn.setEnabled(False)
             self.stop_btn.setEnabled(True)
-            self.status_label.setText("Durum: Canlı Veri Dinleniyor")
+            if self.live_unlimited_ticks_check.isChecked():
+                self.status_label.setText("Durum: Canlı Veri Dinleniyor (Sınırsız)")
+            else:
+                self.status_label.setText("Durum: Canlı Veri Dinleniyor")
             self._log("Canlı veri akışı başlatıldı")
             self.timer.start(100)
             return
@@ -635,6 +751,16 @@ class BotGUI(QMainWindow):
                 f"Canlı saldırı isteği: {result.message} "
                 f"(öneri={recommendation}, can_attack_now={can_attack_now}, "
                 f"target={best_target_id})"
+            )
+            self._write_live_detail_log(
+                {
+                    "tick": self.live_world.tick if self.live_world else None,
+                    "event": "manual_attack",
+                    "result": result.message,
+                    "attack_recommendation": recommendation,
+                    "can_attack_now": can_attack_now,
+                    "best_target_id": best_target_id,
+                }
             )
             return
 
