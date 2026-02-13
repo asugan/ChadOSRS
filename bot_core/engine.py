@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+import random
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,6 +21,7 @@ class EngineConfig:
     max_consecutive_failures: int = 6
     require_tick_advance: bool = False
     poll_interval_ms: int = 25
+    poll_jitter_ms: int = 15
     double_observe: bool = True
 
 
@@ -82,7 +84,14 @@ class BotEngine:
 
                 if self.config.require_tick_advance and source_tick is not None:
                     if observed_tick == source_tick:
-                        time.sleep(self.config.poll_interval_ms / 1000)
+                        sleep_ms = self.config.poll_interval_ms
+                        if self.config.poll_jitter_ms > 0:
+                            sleep_ms += random.uniform(
+                                -self.config.poll_jitter_ms, self.config.poll_jitter_ms
+                            )
+                        # Ensure we don't sleep for a negative amount or 0
+                        sleep_ms = max(1.0, sleep_ms)
+                        time.sleep(sleep_ms / 1000.0)
                         continue
 
                 if not self.config.require_tick_advance:

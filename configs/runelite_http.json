@@ -6,6 +6,7 @@
     "max_consecutive_failures": 6,
     "require_tick_advance": true,
     "poll_interval_ms": 25,
+    "poll_jitter_ms": 15,
     "double_observe": false,
     "log_path": "runs/runelite_live.jsonl"
   },

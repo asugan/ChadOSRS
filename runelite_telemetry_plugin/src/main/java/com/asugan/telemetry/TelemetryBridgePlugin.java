@@ -4,6 +4,13 @@ import com.google.inject.Provides;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
+import java.awt.AWTException;
+import java.awt.MouseInfo;
+import java.awt.Point;
+import java.awt.Rectangle;
+import java.awt.Robot;
+import java.awt.Shape;
+import java.awt.event.InputEvent;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -14,6 +21,8 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.logging.Level;
@@ -49,10 +58,14 @@ public class TelemetryBridgePlugin extends Plugin
     private static final Pattern KIND_PATTERN = Pattern.compile("\\\"kind\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
     private static final Pattern TARGET_ID_PATTERN = Pattern.compile("\\\"target_id\\\"\\s*:\\s*(-?\\d+)");
     private static final String ACTION_PATH = "/action";
+    private static final java.util.Random RANDOM = new java.util.Random();
 
     private final HttpClient httpClient = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(2))
         .build();
+
+    private final ExecutorService executorService = Executors.newSingleThreadExecutor();
+    private Robot robot;
 
     @Inject
     private Client client;
@@ -84,6 +97,14 @@ public class TelemetryBridgePlugin extends Plugin
     @Override
     protected void startUp()
     {
+        try
+        {
+            robot = new Robot();
+        }
+        catch (AWTException e)
+        {
+            LOG.warning("Failed to initialize Robot for mouse control: " + e.getMessage());
+        }
         refreshEndpoint();
         restartActionServer();
         overlayManager.add(centerOverlay);
@@ -96,6 +117,7 @@ public class TelemetryBridgePlugin extends Plugin
         stopActionServer();
         overlayManager.remove(centerOverlay);
         clearOverlayState();
+        executorService.shutdownNow();
         LOG.info("Telemetry Bridge stopped");
     }
 
@@ -320,6 +342,103 @@ public class TelemetryBridgePlugin extends Plugin
             return;
         }
 
+        if (robot == null)
+        {
+            performMenuAttack(targetNpc);
+            return;
+        }
+
+        Shape hull = targetNpc.getConvexHull();
+        if (hull == null)
+        {
+            performMenuAttack(targetNpc);
+            return;
+        }
+
+        Rectangle bounds = hull.getBounds();
+        if (bounds == null)
+        {
+            performMenuAttack(targetNpc);
+            return;
+        }
+
+        int x = bounds.x + 2 + RANDOM.nextInt(Math.max(1, bounds.width - 4));
+        int y = bounds.y + 2 + RANDOM.nextInt(Math.max(1, bounds.height - 4));
+
+        try
+        {
+            Point canvasLoc = client.getCanvas().getLocationOnScreen();
+            int screenX = canvasLoc.x + x;
+            int screenY = canvasLoc.y + y;
+            executorService.submit(() -> moveMouseAndClick(screenX, screenY));
+        }
+        catch (Exception ex)
+        {
+            LOG.warning("Failed to calculate screen coordinates: " + ex.getMessage());
+            performMenuAttack(targetNpc);
+        }
+    }
+
+    private void moveMouseAndClick(int targetX, int targetY)
+    {
+        if (robot == null)
+        {
+            return;
+        }
+
+        try
+        {
+            java.awt.PointerInfo pointerInfo = MouseInfo.getPointerInfo();
+            if (pointerInfo == null)
+            {
+                return;
+            }
+
+            Point current = pointerInfo.getLocation();
+            int distance = (int) Math.round(current.distance(targetX, targetY));
+            int steps = Math.max(12, Math.min(45, (distance / 12) + 10 + RANDOM.nextInt(8)));
+
+            int curveSpread = Math.max(12, Math.min(60, distance / 5));
+            double controlX = (current.x + targetX) / 2.0 + (RANDOM.nextInt(curveSpread * 2 + 1) - curveSpread);
+            double controlY = (current.y + targetY) / 2.0 + (RANDOM.nextInt(curveSpread * 2 + 1) - curveSpread);
+
+            for (int i = 1; i <= steps; i++)
+            {
+                double t = i / (double) steps;
+                double eased = 1.0 - Math.pow(1.0 - t, 2.2);
+                double inv = 1.0 - eased;
+
+                double curveX = (inv * inv * current.x) + (2.0 * inv * eased * controlX) + (eased * eased * targetX);
+                double curveY = (inv * inv * current.y) + (2.0 * inv * eased * controlY) + (eased * eased * targetY);
+
+                int jitterRadius = (int) Math.max(0, Math.round(3.0 * (1.0 - t)));
+                int jitterX = jitterRadius == 0 ? 0 : RANDOM.nextInt(jitterRadius * 2 + 1) - jitterRadius;
+                int jitterY = jitterRadius == 0 ? 0 : RANDOM.nextInt(jitterRadius * 2 + 1) - jitterRadius;
+
+                robot.mouseMove((int) Math.round(curveX) + jitterX, (int) Math.round(curveY) + jitterY);
+                Thread.sleep(6 + RANDOM.nextInt(11));
+            }
+
+            int settleX = targetX + (RANDOM.nextInt(5) - 2);
+            int settleY = targetY + (RANDOM.nextInt(5) - 2);
+            robot.mouseMove(settleX, settleY);
+            Thread.sleep(40 + RANDOM.nextInt(80));
+            robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
+            Thread.sleep(20 + RANDOM.nextInt(35));
+            robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
+        }
+        catch (InterruptedException e)
+        {
+            Thread.currentThread().interrupt();
+        }
+        catch (Exception e)
+        {
+            LOG.warning("Mouse automation error: " + e.getMessage());
+        }
+    }
+
+    private void performMenuAttack(NPC targetNpc)
+    {
         MenuAction attackAction = resolveAttackAction(targetNpc);
         if (attackAction == null)
         {
@@ -345,9 +464,10 @@ public class TelemetryBridgePlugin extends Plugin
 
     private NPC findNearestScorpion(WorldPoint localPos, Integer targetId)
     {
-        NPC nearest = null;
+        java.util.List<NPC> candidates = new java.util.ArrayList<>();
         int nearestDistance = Integer.MAX_VALUE;
 
+        // First pass: find candidates and determine nearest distance
         for (NPC npc : client.getNpcs())
         {
             if (npc == null)
@@ -366,8 +486,13 @@ public class TelemetryBridgePlugin extends Plugin
                 continue;
             }
 
-            if (targetId != null && npc.getId() != targetId)
+            // If a specific ID is requested, check for match immediately
+            if (targetId != null)
             {
+                if (npc.getId() == targetId)
+                {
+                    return npc;
+                }
                 continue;
             }
 
@@ -380,6 +505,7 @@ public class TelemetryBridgePlugin extends Plugin
             int dx = Math.abs(npcPos.getX() - localPos.getX());
             int dy = Math.abs(npcPos.getY() - localPos.getY());
             int distance = Math.max(dx, dy);
+
             if (distance > SCORPION_RADIUS_TILES)
             {
                 continue;
@@ -388,11 +514,50 @@ public class TelemetryBridgePlugin extends Plugin
             if (distance < nearestDistance)
             {
                 nearestDistance = distance;
-                nearest = npc;
+            }
+            candidates.add(npc);
+        }
+
+        if (candidates.isEmpty())
+        {
+            return null;
+        }
+
+        // If targetId was specified but we didn't return in loop, it wasn't found
+        if (targetId != null)
+        {
+            return null;
+        }
+
+        // Second pass: Filter candidates that are "close enough" to the nearest one
+        // Use a small fuzz factor (e.g. 1-2 tiles) to mimic human imprecision
+        int fuzz = 1;
+        if (nearestDistance > 5)
+        {
+            fuzz = 2; // More fuzz for distant targets
+        }
+
+        java.util.List<NPC> viableTargets = new java.util.ArrayList<>();
+        for (NPC npc : candidates)
+        {
+            WorldPoint npcPos = npc.getWorldLocation();
+            int dx = Math.abs(npcPos.getX() - localPos.getX());
+            int dy = Math.abs(npcPos.getY() - localPos.getY());
+            int dist = Math.max(dx, dy);
+
+            if (dist <= nearestDistance + fuzz)
+            {
+                viableTargets.add(npc);
             }
         }
 
-        return nearest;
+        if (viableTargets.isEmpty())
+        {
+            return null;
+        }
+
+        // Randomly pick one of the viable targets
+        return viableTargets.get(RANDOM.nextInt(viableTargets.size()));
     }
 
     private MenuAction resolveAttackAction(NPC npc)

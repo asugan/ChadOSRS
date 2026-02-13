@@ -34,6 +34,8 @@ runs/
 runelite_telemetry_plugin/.gradle/
 runelite_telemetry_plugin/build/
 runelite_telemetry_plugin/out/
+runelite_telemetry_plugin/bin/
+runelite_telemetry_plugin/.classpath
 
 # IDE / OS files
 .idea/
