@@ -1,0 +1,35 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'com.asugan'
+version = '0.1.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+    maven {
+        url = 'https://repo.runelite.net'
+    }
+}
+
+dependencies {
+    implementation "net.runelite:client:${runeliteVersion}"
+
+    testImplementation 'junit:junit:4.13.2'
+}
+
+application {
+    mainClass = 'com.asugan.telemetry.DevRuneLiteLauncher'
+    applicationDefaultJvmArgs = ['-ea']
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}

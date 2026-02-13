@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.python-version
+
+# Virtual environments and local env files
+.venv/
+venv/
+.env
+.env.*
+
+# Python tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.nox/
+.tox/
+
+# Coverage and packaging artifacts
+.coverage
+.coverage.*
+htmlcov/
+pip-wheel-metadata/
+.eggs/
+*.egg-info/
+
+# Runtime outputs
+runs/
+*.jsonl
+
+# Gradle/Java build artifacts
+runelite_telemetry_plugin/.gradle/
+runelite_telemetry_plugin/build/
+runelite_telemetry_plugin/out/
+
+# IDE / OS files
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db

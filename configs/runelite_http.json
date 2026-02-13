@@ -1,0 +1,35 @@
+{
+  "adapter_mode": "runelite_http",
+  "engine": {
+    "max_ticks": 500,
+    "max_retries": 6,
+    "max_consecutive_failures": 6,
+    "require_tick_advance": true,
+    "poll_interval_ms": 25,
+    "double_observe": false,
+    "log_path": "runs/runelite_live.jsonl"
+  },
+  "sim_world": {
+    "width": 8,
+    "height": 6,
+    "bot_pos": [0, 0],
+    "target_pos": [6, 4],
+    "obstacles": [[2, 0], [2, 1], [2, 2], [4, 3], [5, 3]]
+  },
+  "real_stub_world": {
+    "width": 8,
+    "height": 6,
+    "bot_pos": [0, 0],
+    "target_pos": [6, 4],
+    "obstacles": [[2, 0], [2, 1], [2, 2], [4, 3], [5, 3]]
+  },
+  "runelite_http": {
+    "host": "127.0.0.1",
+    "port": 8765,
+    "observe_timeout_s": 12.0,
+    "world_width": 10000,
+    "world_height": 10000,
+    "target_pos": [3200, 3200],
+    "obstacles": []
+  }
+}

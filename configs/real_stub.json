@@ -1,0 +1,23 @@
+{
+  "adapter_mode": "real_stub",
+  "engine": {
+    "max_ticks": 120,
+    "max_retries": 6,
+    "max_consecutive_failures": 6,
+    "log_path": "runs/latest.jsonl"
+  },
+  "sim_world": {
+    "width": 8,
+    "height": 6,
+    "bot_pos": [0, 0],
+    "target_pos": [6, 4],
+    "obstacles": [[2, 0], [2, 1], [2, 2], [4, 3], [5, 3]]
+  },
+  "real_stub_world": {
+    "width": 8,
+    "height": 6,
+    "bot_pos": [0, 0],
+    "target_pos": [6, 4],
+    "obstacles": [[2, 0], [2, 1], [2, 2], [4, 3], [5, 3]]
+  }
+}
