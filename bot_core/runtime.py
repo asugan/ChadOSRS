@@ -13,6 +13,7 @@ from .adapters.real_stub import (
     RealStubWorldConfig,
 )
 from .adapters.runelite_http import (
+    RuneLiteHttpActionRunner,
     RuneLiteHttpAdapterConfig,
     RuneLiteNoopActionRunner,
     RuneLitePerception,
@@ -93,6 +94,18 @@ def load_app_config(path: Path) -> AppConfig:
         world_height=int(rl_raw.get("world_height", 10000)),
         target_pos=_to_coord(rl_raw.get("target_pos", [0, 0])),
         obstacles=_to_coord_set(rl_raw.get("obstacles", [])),
+        enable_action_runner=bool(rl_raw.get("enable_action_runner", False)),
+        action_url=(
+            str(rl_raw.get("action_url"))
+            if rl_raw.get("action_url") is not None
+            else None
+        ),
+        action_timeout_s=float(rl_raw.get("action_timeout_s", 0.8)),
+        action_auth_token=(
+            str(rl_raw.get("action_auth_token"))
+            if rl_raw.get("action_auth_token") is not None
+            else None
+        ),
     )
 
     mode = raw.get("adapter_mode", "sim")
@@ -131,4 +144,13 @@ def build_adapters(config: AppConfig) -> tuple[IPerception, IActionRunner]:
         )
         return RealPerceptionStub(bridge), RealActionRunnerStub(bridge)
 
-    return RuneLitePerception(config.runelite_http), RuneLiteNoopActionRunner()
+    perception = RuneLitePerception(config.runelite_http)
+    if config.runelite_http.enable_action_runner and config.runelite_http.action_url:
+        runner = RuneLiteHttpActionRunner(
+            action_url=config.runelite_http.action_url,
+            timeout_s=config.runelite_http.action_timeout_s,
+            auth_token=config.runelite_http.action_auth_token,
+        )
+        return perception, runner
+
+    return perception, RuneLiteNoopActionRunner()

@@ -4,9 +4,10 @@ import json
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Condition, Lock, Thread
+from urllib import error, request
 
 from ..types import ActionResult, BotAction, Coord
-from ..world_model import WorldModel
+from ..world_model import Npc, NpcType, WorldModel
 
 
 def _coerce_int(value: object, field_name: str) -> int:
@@ -40,6 +41,10 @@ class RuneLiteHttpAdapterConfig:
     world_height: int = 10000
     target_pos: Coord = (0, 0)
     obstacles: set[Coord] | None = None
+    enable_action_runner: bool = False
+    action_url: str | None = None
+    action_timeout_s: float = 0.8
+    action_auth_token: str | None = None
 
 
 class _SnapshotStore:
@@ -180,10 +185,34 @@ class RuneLitePerception:
         if distances:
             nearest_scorpion_distance = min(distances)
 
-        nearby_scorpions.sort(
-            key=lambda npc: (int(npc.get("distance", 10**6)), int(npc.get("id", -1)))
-        )
+        def _npc_sort_key(npc: dict[str, object]) -> tuple[int, int]:
+            distance = npc.get("distance")
+            npc_id = npc.get("id")
+            safe_distance = distance if isinstance(distance, int) else 10**6
+            safe_npc_id = npc_id if isinstance(npc_id, int) else -1
+            return safe_distance, safe_npc_id
+
+        nearby_scorpions.sort(key=_npc_sort_key)
         best_target: dict[str, object] | None = nearby_scorpions[0] if nearby_scorpions else None
+
+        npcs: dict[str, Npc] = {}
+        for idx, npc in enumerate(nearby_scorpions):
+            npc_id = npc.get("id", -1)
+            pos = npc.get("pos", [0, 0])
+            if not isinstance(pos, list) or len(pos) != 2:
+                continue
+            if not isinstance(pos[0], int) or not isinstance(pos[1], int):
+                continue
+
+            npc_key = f"scorpion_{npc_id}_{idx}"
+            npcs[npc_key] = Npc(
+                id=str(npc_id),
+                npc_type=NpcType.SCORPION,
+                pos=(pos[0], pos[1]),
+                hp=1,
+                max_hp=1,
+                alive=True,
+            )
 
         risk_level = _risk_level(nearest_scorpion_distance)
         if best_target is None:
@@ -203,6 +232,7 @@ class RuneLitePerception:
             target_pos=self.config.target_pos,
             obstacles=obstacles,
             task_complete=task_complete,
+            npcs=npcs,
             meta={
                 "nearby_scorpions": nearby_scorpions,
                 "nearby_scorpion_count": len(nearby_scorpions),
@@ -222,3 +252,44 @@ class RuneLitePerception:
 class RuneLiteNoopActionRunner:
     def execute(self, action: BotAction) -> ActionResult:
         return ActionResult(success=True, message=f"noop:{action.kind}")
+
+
+class RuneLiteHttpActionRunner:
+    def __init__(
+        self,
+        action_url: str,
+        timeout_s: float = 0.8,
+        auth_token: str | None = None,
+    ) -> None:
+        self.action_url = action_url
+        self.timeout_s = timeout_s
+        self.auth_token = auth_token
+
+    def execute(self, action: BotAction) -> ActionResult:
+        if action.kind not in {"attack", "auto_attack"}:
+            return ActionResult(success=True, message=f"ignored:{action.kind}")
+
+        payload: dict[str, object] = {"kind": action.kind}
+        if action.target is not None:
+            payload["target"] = [int(action.target[0]), int(action.target[1])]
+
+        headers = {"Content-Type": "application/json"}
+        if self.auth_token:
+            headers["X-Action-Token"] = self.auth_token
+
+        req = request.Request(
+            url=self.action_url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        try:
+            with request.urlopen(req, timeout=self.timeout_s) as response:
+                status_code = int(response.status)
+                if 200 <= status_code < 300:
+                    return ActionResult(success=True, message=f"action_sent:{action.kind}")
+                return ActionResult(success=False, message=f"action_http_status:{status_code}")
+        except error.HTTPError as exc:
+            return ActionResult(success=False, message=f"action_http_error:{exc.code}")
+        except Exception as exc:
+            return ActionResult(success=False, message=f"action_send_failed:{exc}")

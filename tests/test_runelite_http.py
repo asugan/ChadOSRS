@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread
 from urllib import request
 
 from bot_core.adapters.runelite_http import (
+    RuneLiteHttpActionRunner,
     RuneLiteHttpAdapterConfig,
     RuneLiteNoopActionRunner,
     RuneLitePerception,
@@ -81,3 +84,38 @@ def test_runelite_noop_runner_returns_success() -> None:
 
     assert result.success is True
     assert result.message == "noop:move"
+
+
+def test_runelite_http_action_runner_posts_attack() -> None:
+    captured: dict[str, object] = {}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802
+            content_len = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(content_len)
+            captured["body"] = json.loads(body)
+            captured["token"] = self.headers.get("X-Action-Token")
+            self.send_response(204)
+            self.end_headers()
+
+        def log_message(self, format: str, *args: object) -> None:
+            del format, args
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        runner = RuneLiteHttpActionRunner(
+            action_url=f"http://127.0.0.1:{server.server_port}/action",
+            auth_token="test-token",
+        )
+        result = runner.execute(BotAction(kind="attack"))
+
+        assert result.success is True
+        assert result.message == "action_sent:attack"
+        assert captured["body"] == {"kind": "attack"}
+        assert captured["token"] == "test-token"
+    finally:
+        server.shutdown()
+        server.server_close()

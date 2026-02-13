@@ -8,7 +8,7 @@ Minimal bir bot cekirdegi iskeleti:
 - JSONL loglama
 - Basit fail-safe (consecutive failure guard)
 - Sim/real-stub adaptor gecisi (config tabanli)
-- RuneLite HTTP telemetry adaptor (read-only)
+- RuneLite HTTP telemetry adaptor (opsiyonel action bridge)
 - `pytest` ile temel testler
 
 ## Hizli Baslangic
@@ -28,7 +28,7 @@ Demo sonunda log dosyasi `runs/latest.jsonl` altina yazilir.
 - Config dosyasi: `configs/dev.json`
 - `adapter_mode: "sim"` -> Grid simulator adaptorleri
 - `adapter_mode: "real_stub"` -> Gercek baglanti yerini temsil eden stub adaptorler
-- `adapter_mode: "runelite_http"` -> RuneLite plugininden HTTP tick verisi alir
+- `adapter_mode: "runelite_http"` -> RuneLite plugininden HTTP tick verisi alir, opsiyonel action komutu gonderir
 
 Ornek:
 
@@ -50,7 +50,8 @@ python3 run_demo.py --config configs/runelite_http.json
 
 Notlar:
 
-- Bu mod read-only telemetri alir, oyun ici input uretmez.
+- Varsayilan mod read-only telemetri alir.
+- `runelite_http` altinda `enable_action_runner: true` + `action_url` ayarlanirsa `attack` aksiyonlari plugin action endpoint'ine POST edilir.
 - `configs/runelite_http.json` icinde `target_pos` ve timeout ayarlarini guncelleyebilirsin.
 - Canli modda her game tick bir engine tick olarak islenir (`require_tick_advance: true`).
 - `runs/runelite_live.jsonl` icinde `nearby_scorpion_count` ve `nearest_scorpion_distance` alanlari yer alir.

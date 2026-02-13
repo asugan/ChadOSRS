@@ -20,6 +20,8 @@ def main() -> None:
     app_config = load_app_config(args.config)
     perception, runner = build_adapters(app_config)
 
+    print(f"runner={runner.__class__.__name__}")
+
     if hasattr(perception, "listen_port"):
         print(f"telemetry_listen_port={getattr(perception, 'listen_port')}")
 

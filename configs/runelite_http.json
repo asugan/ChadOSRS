@@ -30,6 +30,10 @@
     "world_width": 10000,
     "world_height": 10000,
     "target_pos": [3200, 3200],
-    "obstacles": []
+    "obstacles": [],
+    "enable_action_runner": true,
+    "action_url": "http://127.0.0.1:8766/action",
+    "action_timeout_s": 1.0,
+    "action_auth_token": ""
   }
 }

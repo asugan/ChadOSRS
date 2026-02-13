@@ -98,8 +98,34 @@ $HOME/.var/app/com.adamcake.Bolt/data/bolt-launcher/custom-clients/runelite-tele
 - `Request Timeout (ms)`: per-request timeout
 - `Center Overlay`: draw center-screen recommendation text
 - `Overlay Only Attack Now`: only show overlay when scorpion is in attack range
+- `Action Bridge Enabled`: starts a local action endpoint
+- `Action Bridge Host`: bind host for action endpoint (default `127.0.0.1`)
+- `Action Bridge Port`: bind port for action endpoint (default `8766`)
+- `Action Auth Token`: optional token expected in `X-Action-Token`
+
+## Optional action endpoint
+
+When `Action Bridge Enabled` is on, plugin listens on:
+
+- `http://<Action Bridge Host>:<Action Bridge Port>/action`
+
+Supported command payload:
+
+```json
+{
+  "kind": "attack"
+}
+```
+
+Optional fields:
+
+- `target_id`: prefer nearest scorpion with matching NPC id
+
+Optional header:
+
+- `X-Action-Token: <your-token>`
 
 ## Safety
 
-- This plugin is read-only telemetry only.
-- It does not generate input or automate gameplay actions.
+- By default, action bridge is disabled.
+- If enabled, it only accepts local HTTP commands and currently handles `attack`/`auto_attack` for nearby scorpions.

@@ -11,6 +11,9 @@ class BotAction:
     target: Coord | None = None
 
 
+ATTACK_KINDS = {"attack", "auto_attack"}
+
+
 @dataclass(frozen=True)
 class ActionResult:
     success: bool

@@ -56,4 +56,44 @@ public interface TelemetryBridgeConfig extends Config
     {
         return true;
     }
+
+    @ConfigItem(
+        keyName = "actionBridgeEnabled",
+        name = "Action Bridge Enabled",
+        description = "Enable local HTTP action endpoint (manual use)"
+    )
+    default boolean actionBridgeEnabled()
+    {
+        return false;
+    }
+
+    @ConfigItem(
+        keyName = "actionBridgeHost",
+        name = "Action Bridge Host",
+        description = "Host to bind action endpoint"
+    )
+    default String actionBridgeHost()
+    {
+        return "127.0.0.1";
+    }
+
+    @ConfigItem(
+        keyName = "actionBridgePort",
+        name = "Action Bridge Port",
+        description = "Port to bind action endpoint"
+    )
+    default int actionBridgePort()
+    {
+        return 8766;
+    }
+
+    @ConfigItem(
+        keyName = "actionAuthToken",
+        name = "Action Auth Token",
+        description = "Optional token expected in X-Action-Token header"
+    )
+    default String actionAuthToken()
+    {
+        return "";
+    }
 }
